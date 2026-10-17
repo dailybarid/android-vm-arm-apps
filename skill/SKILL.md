@@ -80,8 +80,9 @@ grep -c 'error null ctx' <emulator stdout>   # host-GL context loss
 grep -oE 'c2\.[a-z0-9._]+decoder' <logcat> | sort | uniq -c
 ```
 Two independent sources, only one of which is fixable from the host:
-- **host GL context loss** (`error null ctx`, `bad color buffer handle`): zero in headless mode, dozens
-  per video when windowed. Headless+scrcpy already eliminates it.
+- **host GL context loss** (`error null ctx`, `bad color buffer handle`): single digits across a whole
+  session in headless mode (measured: 7 since boot), versus dozens per video and eventual SIGSEGV when
+  windowed. Headless+scrcpy reduces it to a non-issue rather than literally zero - do not claim zero.
 - **goldfish codec path** (`c2.goldfish.hevc.decoder` + discarded-buffer/consumer-usage errors): present
   even headless, 44-51 events per run. Fix: launch with `-feature -HardwareDecoder`. The app then falls
   back to its own bundled software decoder (TikTok logs `non hardware codecname matched` then
@@ -170,7 +171,18 @@ verdict guide keyed to each failure mode above.
 
 ## Operating it day to day
 - **Start**: `start-android.sh` (headless, host GPU, `-feature -HardwareDecoder`), then `view-vm.sh`
-  for the window and sound (scrcpy 5 with `--audio-source=playback`). A `.desktop` entry chains both.
+  for the window and sound (scrcpy 5 with `--audio-source=playback`).
+- **A `.desktop` entry must NOT chain start + view with `;`.** `start-android.sh` ends in
+  `exec ./emulator …`, which replaces the shell, so `start-android.sh; sleep 25; view-vm.sh` starts the
+  VM headless and *never reaches the viewer* — the user sees a running emulator and no window, and
+  running the two scripts by hand appears to be the only thing that works. Wrap it in a launcher that
+  (1) starts the emulator detached (`setsid nohup ./start-android.sh >emu.log 2>&1 &`), (2) **polls
+  readiness instead of sleeping** (`adb shell getprop sys.boot_completed` until `1`, with a timeout that
+  prints the log path), (3) brings the app to the front, then (4) execs the viewer. Give that script a
+  `--stop` (`adb emu kill` + close the viewer) and point two menu entries at it so the menu can both
+  open and close the VM.
+- **Poll, never `sleep N`, for readiness in anything user-facing.** A fixed sleep either wastes time on
+  a warm start or races a cold first boot and opens a window onto a blank guest.
 - **Stop**: `adb emu kill`. The persistent data partition is what holds the installed app and its
   login, so a SIGKILL of qemu is how you lose the user's session - do not `pkill` it.
 - **The emulator can still exit on its own** (the gfxstream GL quirk above). Recovery is only
@@ -184,11 +196,29 @@ verdict guide keyed to each failure mode above.
 - Before blaming a tool for an unexplained exit, check whether the thing you just did touched it:
   state plainly which changes were live at that moment instead of asserting a cause you cannot prove.
 
+## Sharing this method
+When the user asks to publish it, do not dump the session — reuse the packaged write-up at
+`~/android-vm-arm-apps/`: `README.md` (the method: what it gives you, the measured matrix, then the
+traps with their exact error strings), `docs/FINDINGS.md` (raw evidence per claim), 
+`docs/TROUBLESHOOTING.md` (symptom -> check -> fix), `scripts/` (the launch/view/ui scripts plus the
+`tests/` A/B harnesses), `skill/SKILL.md`, MIT `LICENSE`. House rules for any such repo: state the
+measured numbers **and the failed experiments** (a write-up that only lists what worked is the one
+thing a reader cannot verify); de-hardcode personal absolute paths to `$HOME` or env overrides before
+publishing; `.gitignore` `*.log`/`*.png` so crash logs and screenshots do not ship; credit the user
+(`Khaled Mimoune, Hermes Agent`) under MIT, matching their other published skills. Two mechanics that
+bite on the publish itself: a `*.png` ignore rule also swallows the screenshot you *want* in the README
+(add `!assets/*.png`), and the commit identity should come from `gh api user`
+(`<id>+<login>@users.noreply.github.com`) so no personal address is exposed. Then **verify from
+GitHub's side rather than the push exit code**: `gh repo view --json visibility`, the remote tree via
+`gh api repos/<owner>/<repo>/git/trees/HEAD?recursive=1`, and a fetch of the raw README/screenshot URL.
+
 ## Layout used here
 
 `~/android-vm/`: `sdk/`, `start-android.sh` (headless emulator, host GPU, `-feature -HardwareDecoder`;
 `VM_RAM` / `GPU_MODE` / `AVD_NAME` / `CORES` env overrides), `view-vm.sh` (scrcpy 5 + audio),
+`launch-vm.sh` (the menu entry: detached emulator + boot poll + app to front + viewer; `--stop` shuts down),
 `ui.py` (adb UI driver), `crashwatch.sh` (exit watcher), `glitch-test.sh` and `decode-test.sh`
 (A/B harnesses that feed the measured matrix), `README.md` (mode matrix + gotchas),
-`scrcpy-linux-x86_64-v5.0.1/`. AVD `tiktok35`; desktop entry
-`~/.local/share/applications/android-vm-tiktok.desktop` chains start + view.
+`scrcpy-linux-x86_64-v5.0.1/`. AVD `tiktok35`; menu entries
+`~/.local/share/applications/android-vm-tiktok.desktop` (launch-vm.sh) and `android-vm-stop.desktop`
+(launch-vm.sh --stop).

@@ -83,8 +83,9 @@ gles_v2_imp.cpp:glTexImage2D:3588 error null ctx
 ERROR | bad color buffer handle 809
 ```
 
-Result: corrupted/torn frames, and eventually SIGSEGV (exit 139). Headless measured **0** such
-errors. View with scrcpy instead.
+Result: corrupted/torn frames, and eventually SIGSEGV (exit 139). Headless cuts this to single digits
+across a whole session (measured: 7 since boot) — not literally zero, but a non-issue in practice.
+View with scrcpy instead.
 
 ### 3. The emulator only initialises audio when it HAS a window
 In headless mode the log shows `Could not init 'pa' audio driver` and the guest plays into
