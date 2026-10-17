@@ -14,6 +14,13 @@ Measured on a Ryzen 7 5700X + RTX 3060 (NVIDIA 595) running Linux Mint 22.3:
 | Audio | forwarded to host (HDMI) |
 | Guest RAM headroom | 3.1 GB free of 6 GB |
 
+## What it looks like
+
+![TikTok running in the VM](assets/feed-final-config.png)
+
+*The feed on the final configuration — 720x1280, host GPU, emulator's goldfish codec disabled.
+Screencap taken from the guest, so this is the real output, not a mockup.*
+
 ## Why not Waydroid
 
 Waydroid needs a Wayland session, and on NVIDIA it has no hardware video-decode path — 1080p
