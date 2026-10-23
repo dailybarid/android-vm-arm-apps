@@ -147,6 +147,42 @@ The emulator follows the host default sink, so "no sound" on a box whose only ex
 often the TV/monitor's own volume or input, not the VM. Watch out: `speaker-test -D pulse` fails with
 `Playback open error: -2` under PipeWire; generate a WAV and use `paplay` instead.
 
+## Microphone INTO the guest: broken in emulator 37.2.12 - do not burn hours on it
+Apps inside the VM (TikTok voiceover, any recorder) receive **digital silence** no matter how it is
+configured. Everything that is genuinely required, all verified working end to end:
+
+1. `-allow-host-audio` on the emulator command line. Without it the emulator zeroes input *by design*
+   (help text: "Otherwise, zeroes out audio"). The log then prints `Warning: Allowing host microphone
+   input.`
+2. A working audio backend, which needs an **X display**: headless (`-no-window`) fails with
+   `Could not init 'pa' audio driver` (0 vs 3 PA init errors under Xvfb). Under Xvfb the emulator opens
+   the host mic: `pactl list source-outputs` shows `qemu-system-x86_64` on the mic source, `Corked: no`.
+3. The guest HAL then exposes the mic: `dumpsys media.audio_policy` lists `Built-In Mic` and an
+   `AudioIn_16` thread of type RECORD goes `Standby: no`.
+4. `adb shell pm grant <pkg> android.permission.RECORD_AUDIO` (TikTok otherwise just looks muted).
+
+Result with all four in place, measured twice: recorded WAV = **RMS 4.6, peak 8** (16-bit dither =
+silence). Test 1 fed a synthetic tone (PipeWire null sink -> `QEMU_PA_SOURCE`) and test 2 the physical
+mic while a 440 Hz tone played audibly through the speakers for 20 s of a 32 s recording.
+
+Root cause, from the guest's own HAL log:
+```
+android.hardware.audio@7.1-impl.ranchu: TinyalsaSource::read:143
+  pcm_readi was late delivering frames, inserting 15963 us of silence
+```
+QEMU never delivers capture frames to the guest, so the HAL pads every read with silence. It is an
+emulator-side defect, not a config problem, and `gfxstream`/GPU/window mode is irrelevant to it.
+
+scrcpy cannot substitute: every `--audio-source` choice (`mic`, `mic-unprocessed`, `mic-camcorder`,
+`playback`, ...) captures **device -> host**. There is no host-microphone injection.
+
+What actually works for a post with your voice: record the audio on the host, mux it onto the video
+with ffmpeg, `adb push` the MP4 into the guest (`/sdcard/Movies`), then use TikTok's **upload** flow.
+In-app voiceover/recording is not available in this VM.
+
+Pitfall in the helper: `ui.py tap "Record"` matches substrings, so it hits the screen title
+`Audio Recorder` first. Use the exact form: `ui.py tap -e "Record"`.
+
 ## Measuring smoothness (do this, don't guess)
 
 ```bash

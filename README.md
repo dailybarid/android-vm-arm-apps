@@ -87,6 +87,24 @@ Result: corrupted/torn frames, and eventually SIGSEGV (exit 139). Headless cuts 
 across a whole session (measured: 7 since boot) — not literally zero, but a non-issue in practice.
 View with scrcpy instead.
 
+### Known limitation: microphone input into the guest does not work
+Apps in the VM record **digital silence** (measured: RMS 4.6, peak 8 of 32767). Everything genuinely
+required is in place — `-allow-host-audio` on the emulator command line, an initialised PulseAudio
+backend (needs an X display: headless `-no-window` fails with `Could not init 'pa' audio driver`),
+the guest HAL exposing `Built-In Mic`, and `pm grant <pkg> android.permission.RECORD_AUDIO` — and the
+emulator still consumes the host mic (`pactl list source-outputs` → `qemu-system-x86_64`, `Corked: no`)
+while delivering nothing to Android:
+
+```
+android.hardware.audio@7.1-impl.ranchu: TinyalsaSource::read:143
+  pcm_readi was late delivering frames, inserting 15963 us of silence
+```
+
+It is an emulator-side defect. scrcpy cannot substitute: every `--audio-source` choice captures
+device → host, and none injects the host microphone. Workaround for a post with your voice: record the
+audio on the host, mux it onto the video with ffmpeg, `adb push` the MP4 to `/sdcard/Movies`, then use
+TikTok's upload flow. In-app voiceover is not available in this VM.
+
 ### 3. The emulator only initialises audio when it HAS a window
 In headless mode the log shows `Could not init 'pa' audio driver` and the guest plays into
 silence (it still reports active output tracks). `PULSE_SERVER`, restarting PipeWire and
